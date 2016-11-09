@@ -24,7 +24,7 @@ namespace GxIAPINET.Sample.Common
       Bitmap         m_Showbitmap      = null;                ///<要显示的bitmap对象
       const uint     PIXEL_FORMATE_BIT = 0x00FF0000;          ///<用于与当前的数据格式进行与运算得到当前的数据位数
       const uint     GX_PIXEL_8BIT     = 0x00080000;          ///<8位数据图像格式
-                                                       
+                                     
       /// <summary>
       /// 构造函数用于初始化设备对象与PictureBox控件对象
       /// </summary>

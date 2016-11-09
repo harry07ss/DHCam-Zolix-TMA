@@ -8,318 +8,99 @@ using System.Text;
 using System.Windows.Forms;
 using System.Threading;
 using System.IO;
+using System.Drawing.Imaging;
+
+using XmlRpc_Wrapper;
 using GxIAPINET;
 using GxIAPINET.Sample.Common;
+using Messages;
+using System.Runtime.InteropServices;
 
+using Accord.Imaging;
+using Accord.Imaging.Filters;
+using Accord.Math;
+using Accord.Collections;
+using Accord.Math.Distances;
+using Accord;
+//using AForge;
+
+using Sys;
 
 namespace DriverdotNET
 {
     public partial class GxSingleCam : Form
     {
-        bool                 m_bIsOpen                    = false;                           ///<设备打开状态
-        bool                 m_bIsSnap                    = false;                           ///<发送开采命令标识
-        bool                 m_bTriggerMode               = false;                           ///<是否支持触发模式
-        bool                 m_bTriggerActive             = false;                           ///<是否支持触发极性
-        bool                 m_bTriggerSource             = false;                           ///<是否支持触发源 
-        bool                 m_bWhiteAuto                 = false;                           ///<标识是否支持白平衡
-        bool                 m_bBalanceRatioSelector      = false;                           ///<标识是否支持白平衡通道
-        bool                 m_bWhiteAutoSelectedIndex    = true;                            ///<白平衡列表框转换标志
-        IGXFactory           m_objIGXFactory              = null;                            ///<Factory对像
-        IGXDevice            m_objIGXDevice               = null;                            ///<设备对像
-                           ///<设备对像
-        IGXStream            m_objIGXStream               = null;                            ///<流对像                           ///<流对像
-        IGXFeatureControl    m_objIGXFeatureControl       = null;                            ///<远端设备属性控制器对像
-                                 ///<远端设备属性控制器对像
-        string               m_strBalanceWhiteAutoValue   = "Off";                           ///<自动白平衡当前的值
-        GxBitmap             m_objGxBitmap                = null;                            ///<图像显示类对象
+     
+                                                                                    
+        IGXDevice            m_objIGXDevice1               = null;                            ///<设备对像
+        IGXStream            m_objIGXStream1               = null;                            ///<流对像                           ///<流对像
+        
+        IGXDevice            m_objIGXDevice2               = null;                            ///<设备对像                           
+        IGXStream            m_objIGXStream2               = null;                            ///<流对像                           ///<流对像
+                               ///<远端设备属性控制器对像
                                                                               ///
         string               m_strFilePath                = "";                              ///<应用程序当前路径
-       
-        
+        CROS ros = null;
 
+        GxBitmap m_objGxBitmap;
+        GxBitmap m_objGxBitmap2;
+        private Accord.IntPoint[] correlationPoints1;
+        private Accord.IntPoint[] correlationPoints2;
+
+        private MatrixH homography;
+        private int counter = 0;
+
+        Int32[] A = new Int32[4];
+        Int32[] LP = new Int32[4];
+        Int32[] speed = new Int32[4];
+        int i;
+        IntPtr hDevice;
+        USB1020.USB1020_PARA_DataList[] DL = new USB1020.USB1020_PARA_DataList[4];
+        USB1020.USB1020_PARA_LCData[] LC = new USB1020.USB1020_PARA_LCData[4];		// 直线和S曲线参数
+
+        //USB1020.USB1020_PARA_DataList DL;
+        USB1020.USB1020_PARA_InterpolationAxis IA;	// 插补轴
+        USB1020.USB1020_PARA_LineData LD;		// 直线插补和固定线速度直线插补参数
+        USB1020.USB1020_PARA_InterpolationAxis IA2;	// 插补轴
+        USB1020.USB1020_PARA_LineData LD2;		// 直线插补和固定线速度直线插补参数
+
+        const bool withros = false;
         public GxSingleCam()
         {
             // 获取应用程序的当前执行路径
             m_strFilePath = Directory.GetCurrentDirectory().ToString();
             InitializeComponent();
         }
-
-        /// <summary>
-        /// 设备打开后初始化界面
-        /// </summary>
-        private void __InitUI()
+        void OnFrameCallbackFun(object obj, IFrameData objIFrameData)
         {
-            __InitEnumComBoxUI(m_cb_TriggerMode, "TriggerMode", m_objIGXFeatureControl, ref m_bTriggerMode);                      //触发模式初始化
-            __InitEnumComBoxUI(m_cb_TriggerSource, "TriggerSource", m_objIGXFeatureControl, ref m_bTriggerSource);                //触发源初始化
-            __InitEnumComBoxUI(m_cb_TriggerActivation, "TriggerActivation", m_objIGXFeatureControl, ref m_bTriggerActive);        //触发极性初始化
-            __InitShutterUI();                                                                                                    //曝光初始化
-            __InitGainUI();                                                                                                       //增益的初始化
-            __InitWhiteRatioUI();                                                                                                 //初始化白平衡系数相关控件
-            __InitEnumComBoxUI(m_cb_AutoWhite, "BalanceWhiteAuto", m_objIGXFeatureControl, ref m_bWhiteAuto);                     //自动白平衡的初始化
-            __InitEnumComBoxUI(m_cb_RatioSelector, "BalanceRatioSelector", m_objIGXFeatureControl, ref m_bBalanceRatioSelector);  //白平衡通道选择
-
-
-            //获取白平衡当前的值
-            bool bIsImplemented = false;             //是否支持
-            bool bIsReadable = false;                //是否可读
-            // 获取是否支持
-            if (null != m_objIGXFeatureControl)
+            if (objIFrameData.GetStatus()==GX_FRAME_STATUS_LIST.GX_FRAME_STATUS_SUCCESS)
             {
-                bIsImplemented = m_objIGXFeatureControl.IsImplemented("BalanceWhiteAuto");
-                bIsReadable = m_objIGXFeatureControl.IsReadable("BalanceWhiteAuto");
-                if (bIsImplemented)
+                m_objGxBitmap.Show(objIFrameData);        
+                if(withros)
                 {
-                    if (bIsReadable)
-                    {
-                        //获取当前功能值
-                        m_strBalanceWhiteAutoValue = m_objIGXFeatureControl.GetEnumFeature("BalanceWhiteAuto").GetValue();
-                    }
-                }
-            }
-        }
-
-
-        /// <summary>
-        /// 对枚举型变量按照功能名称设置值
-        /// </summary>
-        /// <param name="strFeatureName">枚举功能名称</param>
-        /// <param name="strValue">功能的值</param>
-        /// <param name="objIGXFeatureControl">属性控制器对像</param>
-        private void __SetEnumValue(string strFeatureName, string strValue, IGXFeatureControl objIGXFeatureControl)
-        {
-            if (null != objIGXFeatureControl)
-            {
-                //设置当前功能值
-                objIGXFeatureControl.GetEnumFeature(strFeatureName).SetValue(strValue);
-            }
-        }
-
-        /// <summary>
-        /// 枚举型功能ComBox界面初始化
-        /// </summary>
-        /// <param name="cbEnum">ComboBox控件名称</param>
-        /// <param name="strFeatureName">枚举型功能名称</param>
-        /// <param name="objIGXFeatureControl">属性控制器对像</param>
-        /// <param name="bIsImplemented">是否支持</param>
-        private void __InitEnumComBoxUI(ComboBox cbEnum, string strFeatureName, IGXFeatureControl objIGXFeatureControl, ref bool bIsImplemented)
-        {
-            string strTriggerValue = "";                   //当前选择项
-            List<string> list = new List<string>();   //Combox将要填入的列表
-            bool bIsReadable = false;                //是否可读
-            // 获取是否支持
-            if (null != objIGXFeatureControl)
-            {
-
-                bIsImplemented = objIGXFeatureControl.IsImplemented(strFeatureName);
-                // 如果不支持则直接返回
-                if (!bIsImplemented)
-                {
-                    return;
-                }
-
-                bIsReadable = objIGXFeatureControl.IsReadable(strFeatureName);
-
-                if (bIsReadable)
-                {
-                    list.AddRange(objIGXFeatureControl.GetEnumFeature(strFeatureName).GetEnumEntryList());
-                    //获取当前功能值
-                    strTriggerValue = objIGXFeatureControl.GetEnumFeature(strFeatureName).GetValue();
+                    if (ros.isConnect)
+                        ros.PubMapImgL(m_objGxBitmap.Mbitmap);
                 }
 
             }
 
-            //清空组合框并更新数据到窗体
-            cbEnum.Items.Clear();
-            foreach (string str in list)
-            {
-                cbEnum.Items.Add(str);
-            }
 
-            //获得相机值和枚举到值进行比较，刷新对话框
-            for (int i = 0; i < cbEnum.Items.Count; i++)
+
+        }
+        void OnFrameCallbackFun2(object obj, IFrameData objIFrameData)
+        {
+            if (objIFrameData.GetStatus() == GX_FRAME_STATUS_LIST.GX_FRAME_STATUS_SUCCESS)
             {
-                string strTemp = cbEnum.Items[i].ToString();
-                if (strTemp == strTriggerValue)
+                m_objGxBitmap2.Show(objIFrameData);
+                if(withros)
                 {
-                    cbEnum.SelectedIndex = i;
-                    break;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 初始化白平衡系数相关控件
-        /// </summary>
-        private void __InitWhiteRatioUI()
-        {
-            double dWhiteRatio = 0.0;                       //当前曝光值
-            double dMin = 0.0;                       //最小值
-            double dMax = 0.0;                       //最大值
-            string strUnit = "";                        //单位
-            string strText = "";                        //显示内容
-            bool bIsBalanceRatio = false;                   //是否白平衡是否支持
-            //获取当前相机的白平衡系数、最小值、最大值和单位
-            if (null != m_objIGXFeatureControl)
-            {
-                bIsBalanceRatio = m_objIGXFeatureControl.IsImplemented("BalanceRatio");
-                if (!bIsBalanceRatio)
-                {
-                    m_txt_BalanceRatio.Enabled = false; ;
-                    return;
-                }
-                dWhiteRatio = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetValue();
-                dMin = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetMin();
-                dMax = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetMax();
-                strUnit = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetUnit();
-            }
-
-            //刷新获取白平衡系数范围及单位到界面上
-            strText = string.Format("白平衡系数({0}~{1}){2}", dMin.ToString("0.00"), dMax.ToString("0.00"), strUnit);
-            m_lbl_WhiteRatio.Text = strText;
-
-            //当前的白平衡系数的编辑框
-            m_txt_BalanceRatio.Text = dWhiteRatio.ToString("0.00");
-        }
-
-
-        /// <summary>
-        /// 曝光控制界面初始化
-        /// </summary>
-        private void __InitShutterUI()
-        {
-            double dCurShuter = 0.0;                       //当前曝光值
-            double dMin = 0.0;                       //最小值
-            double dMax = 0.0;                       //最大值
-            string strUnit = "";                        //单位
-            string strText = "";                        //显示内容
-
-            //获取当前相机的曝光值、最小值、最大值和单位
-            if (null != m_objIGXFeatureControl)
-            {
-                dCurShuter = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetValue();
-                dMin = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetMin();
-                dMax = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetMax();
-                strUnit = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetUnit();
-            }
-
-            //刷新曝光范围及单位到界面上
-            strText = string.Format("曝光时间({0}~{1}){2}", dMin.ToString("0.00"), dMax.ToString("0.00"), strUnit);
-            m_lbl_Shutter.Text = strText;
-
-            //当前的曝光值刷新到曝光的编辑框
-            m_txt_Shutter.Text = dCurShuter.ToString("0.00");
-        }
-
-        /// <summary>
-        /// 增益控制界面初始化
-        /// </summary>
-        private void __InitGainUI()
-        {
-            double dCurGain = 0;             //当前增益值
-            double dMin = 0.0;           //最小值
-            double dMax = 0.0;           //最大值
-            string strUnit = "";            //单位
-            string strText = "";            //显示内容
-
-            //获取当前相机的增益值、最小值、最大值和单位
-            if (null != m_objIGXFeatureControl)
-            {
-                dCurGain = m_objIGXFeatureControl.GetFloatFeature("Gain").GetValue();
-                dMin = m_objIGXFeatureControl.GetFloatFeature("Gain").GetMin();
-                dMax = m_objIGXFeatureControl.GetFloatFeature("Gain").GetMax();
-                strUnit = m_objIGXFeatureControl.GetFloatFeature("Gain").GetUnit();
-            }
-
-            //更新增益值范围到界面
-            strText = string.Format("增益({0}~{1}){2}", dMin.ToString("0.00"), dMax.ToString("0.00"), strUnit);
-            m_lbl_Gain.Text = strText;
-
-            //当前的增益值刷新到增益的编辑框
-            string strCurGain = dCurGain.ToString("0.00");
-            m_txt_Gain.Text = strCurGain;
-        }
-
-        /// <summary>
-        /// 更新界面
-        /// </summary>
-        void __UpdateUI()
-        {
-            //相机控制相关使能操作
-            m_btn_OpenDevice.Enabled = !m_bIsOpen;
-            m_btn_CloseDevice.Enabled = m_bIsOpen;
-            m_btn_StartDevice.Enabled = m_bIsOpen && !m_bIsSnap;
-            m_btn_StopDevice.Enabled = m_bIsSnap;
-
-            //相机参数相关的使能操作
-            m_cb_TriggerMode.Enabled = m_bIsOpen && m_bTriggerMode;
-            m_cb_TriggerSource.Enabled = m_bIsOpen && m_bTriggerSource;
-            m_cb_TriggerActivation.Enabled = m_bIsOpen && m_bTriggerActive;
-            m_cb_RatioSelector.Enabled = m_bIsOpen && m_bBalanceRatioSelector;
-
-
-            m_txt_Shutter.Enabled = m_bIsOpen;
-            m_txt_Gain.Enabled = m_bIsOpen;
-            m_txt_BalanceRatio.Enabled = m_bIsOpen
-                                         && m_bBalanceRatioSelector
-                                         && (m_strBalanceWhiteAutoValue == "Off");
-
-
-            m_cb_AutoWhite.Enabled = m_bIsOpen && m_bWhiteAuto;
-            m_btn_SoftTriggerCommand.Enabled = m_bIsOpen;
-        }
-
-        /// <summary>
-        /// 相机初始化
-        /// </summary>
-        void __InitDevice()
-        {
-            if (null != m_objIGXFeatureControl)
-            {
-                //设置采集模式连续采集
-                m_objIGXFeatureControl.GetEnumFeature("AcquisitionMode").SetValue("Continuous");      
-
-            }
-        }
-
-        /// <summary>
-        /// 关闭流
-        /// </summary>
-        private void __CloseStream()
-        {
-            try
-            {
-                //关闭流
-                if (null != m_objIGXStream)
-                {
-                    m_objIGXStream.Close();
-                    m_objIGXStream = null;
-                }
-             
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        /// <summary>
-        /// 关闭设备
-        /// </summary>
-        private void __CloseDevice()
-        {
-            try
-            {
-                //关闭设备
-                if (null != m_objIGXDevice)
-                {
-                    m_objIGXDevice.Close();
-                    m_objIGXDevice = null;
+                    if (ros.isConnect)
+                        ros.PubMapImgR(m_objGxBitmap2.Mbitmap);
                 }
 
+            
+            }
 
-            }
-            catch (Exception)
-            {
-            }
         }
 
         /// <summary>
@@ -329,21 +110,40 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void GxSingleCam_Load(object sender, EventArgs e)
         {
+            Control.CheckForIllegalCrossThreadCalls = false;
             try
             {
-                //刷新界面
-                __UpdateUI();
-
-                m_objIGXFactory = IGXFactory.GetInstance();
-                m_objIGXFactory.Init();
-
+                IGXFactory.GetInstance().Init();
             }
-            catch (Exception ex)
+            catch (CGalaxyException ex)
             {
-                MessageBox.Show(ex.Message);
-            } 
-        }
+                string strErrorInfo = "错误码为:" + ex.GetErrorCode().ToString() + "错误描述信息为:" + ex.Message;
+                Console.WriteLine(strErrorInfo);
+            }
 
+            if(withros)
+            {
+                try
+                {
+                    ros = new CROS("msi-PC", "http://192.168.0.2:11311");
+                    System.Threading.Thread initthread = new Thread(new ParameterizedThreadStart(Init));
+                    initthread.Start();
+
+                }
+                catch (Exception ex)
+                {
+                    string strErrorInfo = "错误码为:" + ex.ToString() + "错误描述信息为:" + ex.Message;
+                    Console.WriteLine(strErrorInfo);
+                }
+            }
+
+
+        }
+        void Init(object obj)
+        {
+            ros.init();
+            
+        }
         /// <summary>
         /// 打开设备打开流
         /// </summary>
@@ -351,65 +151,68 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void m_btn_OpenDevice_Click(object sender, EventArgs e)
         {
-            try
+            List<IGXDeviceInfo> listGXDeviceInfo = new List<IGXDeviceInfo>();
+            IGXFactory.GetInstance().UpdateAllDeviceList(200, listGXDeviceInfo);
+            foreach (IGXDeviceInfo objDeviceInfo in listGXDeviceInfo)
             {
-                List<IGXDeviceInfo> listGXDeviceInfo = new List<IGXDeviceInfo>();
-
-                //关闭流
-                __CloseStream();
-                // 如果设备已经打开则关闭，保证相机在初始化出错情况下能再次打开
-                __CloseDevice();
-
-                m_objIGXFactory.UpdateDeviceList(200, listGXDeviceInfo);
-
-                // 判断当前连接设备个数
-                if (listGXDeviceInfo.Count <= 1)
-                {
-                    MessageBox.Show("未发现设备/设备数目不足!");
-                    return;
-                }
-
-                // 如果设备已经打开则关闭，保证相机在初始化出错情况下能再次打开
-                if (null != m_objIGXDevice)
-                {
-                    m_objIGXDevice.Close();
-                    m_objIGXDevice = null;
-                }
+                Console.WriteLine("#######################");
+                Console.WriteLine(objDeviceInfo.GetModelName());
+                Console.WriteLine(objDeviceInfo.GetVendorName());
+                Console.WriteLine(objDeviceInfo.GetUserID());
+                Console.WriteLine(objDeviceInfo.GetIP());
+                Console.WriteLine(objDeviceInfo.GetSN());
+                //更多的设备信息详见IGXDeviceInfo接口
+            }
 
 
+            if (listGXDeviceInfo.Count > 1)
+            {
 
-                //打开列表第一个设备
+                String strSN = listGXDeviceInfo[0].GetSN();
+                m_objIGXDevice1 = IGXFactory.GetInstance().OpenDeviceBySN(strSN, GX_ACCESS_MODE.GX_ACCESS_EXCLUSIVE);
 
-                m_objIGXDevice = m_objIGXFactory.OpenDeviceBySN(listGXDeviceInfo[0].GetSN(), GX_ACCESS_MODE.GX_ACCESS_EXCLUSIVE);
-                m_objIGXFeatureControl = m_objIGXDevice.GetRemoteFeatureControl();
-          
+                String strSN2 = listGXDeviceInfo[1].GetSN();
+                m_objIGXDevice2 = IGXFactory.GetInstance().OpenDeviceBySN(strSN2, GX_ACCESS_MODE.GX_ACCESS_EXCLUSIVE);
 
-                //打开流
-                if (null != m_objIGXDevice)
-                {
-                    m_objIGXStream = m_objIGXDevice.OpenStream(0);
-                }
-          
 
-                //初始化相机参数
-                __InitDevice();
+                m_objIGXStream1 = m_objIGXDevice1.OpenStream(0);
+                m_objIGXStream2 = m_objIGXDevice2.OpenStream(0);
+                //注册采集回调函数，注意第一个参数是用户私有参数，用户可以传入任何object对象，也可以是null
+                //用户私有参数在回调函数内部还原使用，如果不使用私有参数，可以传入null
+                m_objIGXStream1.RegisterCaptureCallback(m_objIGXDevice1, OnFrameCallbackFun);
+                m_objIGXStream2.RegisterCaptureCallback(m_objIGXDevice2, OnFrameCallbackFun2);
+                //开启流通道采集
 
-                // 获取相机参数,初始化界面控件
-                __InitUI();
+                //给设备发送开采命令
+                IGXFeatureControl objIGXFeatureControl = m_objIGXDevice1.GetRemoteFeatureControl();
+                //objIGXFeatureControl.GetIntFeature("Height").SetValue(700);
+                objIGXFeatureControl.GetEnumFeature("AcquisitionMode").SetValue("Continuous");
+                objIGXFeatureControl.GetEnumFeature("ExposureAuto").SetValue("Continuous");
+                objIGXFeatureControl.GetIntFeature("GevSCPSPacketSize").SetValue(1500);
+                objIGXFeatureControl.GetIntFeature("GevSCPD").SetValue(1000);
+                objIGXFeatureControl.GetCommandFeature("AcquisitionStart").Execute();
 
-                m_objGxBitmap = new GxBitmap(m_objIGXDevice, m_pic_ShowImage);
-          
-                // 更新设备打开标识
-                m_bIsOpen = true;
+                IGXFeatureControl objIGXFeatureControl2 = m_objIGXDevice2.GetRemoteFeatureControl();
+                //objIGXFeatureControl2.GetIntFeature("Height").SetValue(700);
+                objIGXFeatureControl2.GetEnumFeature("AcquisitionMode").SetValue("Continuous");
+                objIGXFeatureControl2.GetEnumFeature("ExposureAuto").SetValue("Continuous");
+                objIGXFeatureControl2.GetIntFeature("GevSCPSPacketSize").SetValue(1500);
+                objIGXFeatureControl2.GetIntFeature("GevSCPD").SetValue(1000);
+                objIGXFeatureControl2.GetCommandFeature("AcquisitionStart").Execute();
 
-                //刷新界面
-                __UpdateUI();
+                m_objGxBitmap = new GxBitmap(m_objIGXDevice1, m_pic_ShowImage);
+                m_objGxBitmap2 = new GxBitmap(m_objIGXDevice2, m_pic2_ShowImage);
+
+                m_objIGXStream1.StartGrab();
+                m_objIGXStream2.StartGrab();
+
+
 
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show(ex.Message);
-            } 
+
+            }
         }
 
         /// <summary>
@@ -419,70 +222,19 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void m_btn_CloseDevice_Click(object sender, EventArgs e)
         {
-            try
-            {
-                try
-                {
-                    // 如果未停采则先停止采集
-                    if (m_bIsSnap)
-                    {
-                        if (null != m_objIGXFeatureControl)
-                        {
-                            m_objIGXFeatureControl.GetCommandFeature("AcquisitionStop").Execute();
-                            m_objIGXFeatureControl = null;
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-
-                }
-
-                m_bIsSnap = false;
-
-                try
-                {
-                    //停止流通道、注销采集回调和关闭流
-                    if (null != m_objIGXStream)
-                    {
-                        m_objIGXStream.StopGrab();
-                        //注销采集回调函数
-                        m_objIGXStream.UnregisterCaptureCallback();
-                        m_objIGXStream.Close();
-                        m_objIGXStream = null;
-                    }
-
-                }
-                catch (Exception)
-                {
-
-                }
-
-                try
-                {
-                    //关闭设备
-                    if (null != m_objIGXDevice)
-                    {
-                        m_objIGXDevice.Close();
-                        m_objIGXDevice = null;
-                    }
-
-                 
-                }
-                catch (Exception)
-                {
-
-                }
-
-                m_bIsOpen = false;
-
-                //刷新界面
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
+            IGXFeatureControl objIGXFeatureControl = m_objIGXDevice1.GetRemoteFeatureControl();
+            objIGXFeatureControl.GetCommandFeature("AcquisitionStop").Execute();
+            IGXFeatureControl objIGXFeatureControl2 = m_objIGXDevice2.GetRemoteFeatureControl();
+            objIGXFeatureControl2.GetCommandFeature("AcquisitionStop").Execute();
+            m_objIGXStream1.StopGrab();
+            m_objIGXStream2.StopGrab();
+            m_objIGXStream1.UnregisterCaptureCallback();
+            m_objIGXStream2.UnregisterCaptureCallback();
+            //关闭流通道
+            m_objIGXStream1.Close();
+            m_objIGXStream2.Close();
+            m_objIGXDevice1.Close();
+            m_objIGXDevice2.Close();
         }
 
         /// <summary>
@@ -492,33 +244,7 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void m_btn_StartDevice_Click(object sender, EventArgs e)
         {
-            try
-            {
-                //开启采集流通道
-                if (null != m_objIGXStream)
-                {
-                    //RegisterCaptureCallback第一个参数属于用户自定参数(类型必须为引用
-                    //类型)，若用户想用这个参数可以在委托函数中进行使用
-                    m_objIGXStream.RegisterCaptureCallback(this, __CaptureCallbackPro);
-                    m_objIGXStream.StartGrab();
-                }
             
-
-                //发送开采命令
-                if (null != m_objIGXFeatureControl)
-                {
-                    m_objIGXFeatureControl.GetCommandFeature("AcquisitionStart").Execute();
-                }
-
-                m_bIsSnap = true;
-
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
         }
 
         /// <summary>
@@ -528,226 +254,9 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void m_btn_StopDevice_Click(object sender, EventArgs e)
         {
-            try
-            {
-
-                //发送停采命令
-                if (null != m_objIGXFeatureControl)
-                {
-                    m_objIGXFeatureControl.GetCommandFeature("AcquisitionStop").Execute();
-                }
-
-
-                //关闭采集流通道
-                if (null != m_objIGXStream)
-                {
-                    m_objIGXStream.StopGrab();
-                    //注销采集回调函数
-                    m_objIGXStream.UnregisterCaptureCallback();
-                }
-                //关闭采集流通道
-            
-
-
-                m_bIsSnap = false;
-
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// 图像的显示和存储
-        /// </summary>
-        /// <param name="objIFrameData">图像信息对象</param>
-        void ImageShowAndSave(IFrameData objIFrameData)
-        {
-            try
-            {
-                m_objGxBitmap.Show(objIFrameData);
-            }
-            catch (Exception)
-            {
-            }
-
-            // 是否需要进行图像保存
-            if (m_bSaveBmpImg.Checked)
-            {
-                DateTime dtNow = System.DateTime.Now;  // 获取系统当前时间
-                string strDateTime = dtNow.Year.ToString() + "_"
-                                   + dtNow.Month.ToString() + "_"
-                                   + dtNow.Day.ToString() + "_"
-                                   + dtNow.Hour.ToString() + "_"
-                                   + dtNow.Minute.ToString() + "_"
-                                   + dtNow.Second.ToString() + "_"
-                                   + dtNow.Millisecond.ToString();
-
-                string stfFileName = m_strFilePath + "\\" + strDateTime + ".bmp";  // 默认的图像保存名称
-                m_objGxBitmap.SaveBmp(objIFrameData, stfFileName);
-            }
-        }
-
-        /// <summary>
-        /// 回调函数,用于获取图像信息和显示图像
-        /// </summary>
-        /// <param name="obj">用户自定义传入参数</param>
-        /// <param name="objIFrameData">图像信息对象</param>
-        private void __CaptureCallbackPro(object objUserParam, IFrameData objIFrameData)
-        {
-            try
-            {
-                GxSingleCam objGxSingleCam = objUserParam as GxSingleCam;
-                objGxSingleCam.ImageShowAndSave(objIFrameData);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        /// <summary>
-        /// 切换"触发模式"combox框响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_cb_TriggerMode_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                string strValue = m_cb_TriggerMode.Text;
-                __SetEnumValue("TriggerMode", strValue, m_objIGXFeatureControl);
-            
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// 切换"触发源"Combox消息响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_cb_TriggerSource_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                string strValue = m_cb_TriggerSource.Text;
-                __SetEnumValue("TriggerSource", strValue, m_objIGXFeatureControl);
          
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
         }
 
-        /// <summary>
-        /// 切换"触发极性"Combox消息响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_cb_TriggerActivation_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                string strValue = m_cb_TriggerActivation.Text;
-                __SetEnumValue("TriggerActivation", strValue, m_objIGXFeatureControl);
-
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-
-        /// <summary>
-        /// 发送软触发命令
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_btn_SoftTriggerCommand_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                //发送软触发命令
-                if (null != m_objIGXFeatureControl)
-                {
-                    m_objIGXFeatureControl.GetCommandFeature("TriggerSoftware").Execute();
-                }
-              
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-
-        /// <summary>
-        /*-----------------------------------------------------------------------
-         * 当切换自动白平衡模式为Once时,设备内部在设置完Once模式后会自动更新为off,
-         * 为了与设备状态保持一致,程序以代码模拟该过程：判断当前设置模式为Once后,
-         * 将界面随即更新为off(由UpdateWhiteAutoUI()函数实现),但此过程会导致函数
-         * m_cb_AutoWhite_SelectedIndexChanged()执行两次,第二次执行时自动白平衡
-         * 选项已经更新为off,若重新执行可能会打断Once的设置过程,引起白平衡不起作用,
-         * 参数m_bWhiteAutoSelectedIndex即是为了解决函数重入问题而引入的变量
-         ------------------------------------------------------------------------*/
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_cb_AutoWhite_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                if (!m_bWhiteAutoSelectedIndex)
-                {
-                    return;
-                }
-                string strValue = m_cb_AutoWhite.Text;
-                __SetEnumValue("BalanceWhiteAuto", strValue, m_objIGXFeatureControl);
-                m_strBalanceWhiteAutoValue = strValue;
-                // 更新界面UI
-                __UpdateUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// 切换"白平衡通道"选项响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_cb_RatioSelector_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                string strValue = m_cb_RatioSelector.Text;
-                __SetEnumValue("BalanceRatioSelector", strValue, m_objIGXFeatureControl);
-                // 获取白平衡系数更新界面
-                __InitWhiteRatioUI();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
 
         /// <summary>
         /// 窗体关闭、关闭流、关闭设备、反初始化
@@ -756,345 +265,197 @@ namespace DriverdotNET
         /// <param name="e"></param>
         private void GxSingleCam_FormClosed(object sender, FormClosedEventArgs e)
         {
-            try
-            {
-                // 如果未停采则先停止采集
-                if (m_bIsSnap)
-                {
-                    if (null != m_objIGXFeatureControl)
-                    {
-                        m_objIGXFeatureControl.GetCommandFeature("AcquisitionStop").Execute();
-                    }
-                }
-            }
-            catch (Exception)
-            {
-
-            }
-
-            try
-            {
-                //停止流通道、注销采集回调和关闭流
-                if (null != m_objIGXStream)
-                {
-                    m_objIGXStream.StopGrab();
-                    m_objIGXStream.UnregisterCaptureCallback();
-                    m_objIGXStream.Close();
-                    m_objIGXStream = null;
-                }
-
-           
-            }
-            catch (Exception)
-            {
-
-            }
-
-            try
-            {
-                //关闭设备
-                if (null != m_objIGXDevice)
-                {
-                    m_objIGXDevice.Close();
-                    m_objIGXDevice = null;
-                }
-
-          
-            }
-            catch (Exception)
-            {
-
-            }
-           
-            try
-            {
-                //反初始化
-                if (null != m_objIGXFactory)
-                {
-                    m_objIGXFactory.Uninit();
-                }
-            }
-            catch (Exception)
-            {
-
-            }
+            if(withros)
+                ros.uninit();
         }
 
-        /// <summary>
-        /// 检查是否输入的是小数或整数，小数要求小数点最多8位
-        /// </summary>
-        /// <param name="sender">控件对象</param>
-        /// <param name="e">按键响应事件</param>
-        private void __CheckKeyPress(object sender, KeyPressEventArgs e)
+        private void timer1_Tick(object sender, EventArgs e)
         {
-            if (!(((e.KeyChar >= '0') && (e.KeyChar <= '9')) || e.KeyChar <= 31))
+            for (i = 0; i < 4; i++)
             {
-                if (e.KeyChar == '.')
-                {
-                    if (((TextBox)sender).Text.Trim().IndexOf('.') > -1)
-                        e.Handled = true;
-                }
-                else
-                    e.Handled = true;
+                speed[i] = (USB1020.USB1020_ReadCV(hDevice, i));		// 读当前速度
+                A[i] = (USB1020.USB1020_ReadCA(hDevice, i));		// 读当前加速度
+                LP[i] = USB1020.USB1020_ReadLP(hDevice, i);		// 读逻辑计数器
             }
-            else
+            textBox_AD4.Text = LP[0].ToString("0.##");
+            textBox_AD5.Text = LP[1].ToString("0.##");
+            textBox_AD6.Text = LP[2].ToString("0.##");
+            textBox_AD7.Text = LP[3].ToString("0.##");
+            if(counter%5==0)
             {
-                if (e.KeyChar <= 31)
-                {
-                    e.Handled = false;
-                }
-                else if (((TextBox)sender).Text.Trim().IndexOf('.') > -1)
-                {
-                    if (((TextBox)sender).Text.Trim().Substring(((TextBox)sender).Text.Trim().IndexOf('.') + 1).Length >= 8)
-                        e.Handled = true;
-                }
+                button1_Click(sender, e);
             }
+            counter++;
         }
 
-        /// <summary>
-        /// 判断曝光结束事件是否输入的是小数或整数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_Shutter_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            __CheckKeyPress(sender, e);
-        }
-
-        /// <summary>
-        /// 判断增益是否输入的是小数或整数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_Gain_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            __CheckKeyPress(sender, e);
-        }
-
-        /// <summary>
-        /// 判断白平衡系数是否输入的是小数或整数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_BalanceRatio_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            __CheckKeyPress(sender, e);
-        }
-
-        /// <summary>
-        /// 判断是否有回车按下
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void GxSingleCam_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Return)
-            {
-                this.m_pic_ShowImage.Focus();
-            }
-        }
-
-        /// <summary>
-        /// 控制曝光时间的Edit框失去焦点的响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_Shutter_Leave(object sender, EventArgs e)
-        {
-            double dShutterValue = 0.0;              //曝光值
-            double dMin = 0.0;                       //最小值
-            double dMax = 0.0;                       //最大值
-
-            try
-            {
-                try
-                {
-                    dShutterValue = Convert.ToDouble(m_txt_Shutter.Text);
-                }
-                catch (Exception)
-                {
-                    __InitShutterUI();
-                    MessageBox.Show("请输入正确的曝光时间");
-                    return;
-                }
-
-                //获取当前相机的曝光值、最小值、最大值和单位
-                if (null != m_objIGXFeatureControl)
-                {
-                    dMin = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetMin();
-                    dMax = m_objIGXFeatureControl.GetFloatFeature("ExposureTime").GetMax();
-                    //判断输入值是否在曝光时间的范围内
-                    //若大于最大值则将曝光值设为最大值
-                    if (dShutterValue > dMax)
-                    {
-                        dShutterValue = dMax;
-                    }
-                    //若小于最小值将曝光值设为最小值
-                    if (dShutterValue < dMin)
-                    {
-                        dShutterValue = dMin;
-                    }
-
-                    m_txt_Shutter.Text = dShutterValue.ToString("F2");
-                    m_objIGXFeatureControl.GetFloatFeature("ExposureTime").SetValue(dShutterValue);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// 控制增益值的Edit框失去焦点的响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_Gain_Leave(object sender, EventArgs e)
-        {
-            double dGain = 0;            //增益值
-            double dMin = 0.0;           //最小值
-            double dMax = 0.0;           //最大值
-            try
-            {
-                try
-                {
-                    dGain = Convert.ToDouble(m_txt_Gain.Text);
-                }
-                catch (Exception)
-                {
-                    __InitGainUI();
-                    MessageBox.Show("请输入正确的增益值");
-                    return;
-                }
-
-                //当前相机的增益值、最小值、最大值
-                if (null != m_objIGXFeatureControl)
-                {
-                    dMin = m_objIGXFeatureControl.GetFloatFeature("Gain").GetMin();
-                    dMax = m_objIGXFeatureControl.GetFloatFeature("Gain").GetMax();
-
-                    //判断输入值是否在增益值的范围内
-                    //若输入的值大于最大值则将增益值设置成最大值
-                    if (dGain > dMax)
-                    {
-                        dGain = dMax;
-                    }
-
-                    //若输入的值小于最小值则将增益的值设置成最小值
-                    if (dGain < dMin)
-                    {
-                        dGain = dMin;
-                    }
-
-                    m_txt_Gain.Text = dGain.ToString("F2");
-                    m_objIGXFeatureControl.GetFloatFeature("Gain").SetValue(dGain);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// "白平衡系数"Edit框失去焦点响应函数
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_txt_BalanceRatio_Leave(object sender, EventArgs e)
-        {
-            double dBalanceRatio = 0;    //白平衡系数值
-            double dMin = 0.0;           //最小值
-            double dMax = 0.0;           //最大值
-            try
-            {
-                try
-                {
-                    dBalanceRatio = Convert.ToDouble(m_txt_BalanceRatio.Text);
-                }
-                catch (Exception)
-                {
-                    __InitWhiteRatioUI();
-                    MessageBox.Show("请输入正确的白平衡系数");
-                    return;
-                }
-
-                //当前相机的白平衡系数值、最小值、最大值
-                if (null != m_objIGXFeatureControl)
-                {
-                    dMin = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetMin();
-                    dMax = m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").GetMax();
-
-                    //判断输入值是否在白平衡系数的范围内
-                    //若大于最大值则将白平衡系数设为最大值
-                    if (dBalanceRatio > dMax)
-                    {
-                        dBalanceRatio = dMax;
-                    }
-                    //若小于最小值将白平衡系数设为最小值
-                    if (dBalanceRatio < dMin)
-                    {
-                        dBalanceRatio = dMin;
-                    }
-
-                    m_txt_BalanceRatio.Text = dBalanceRatio.ToString("F2");
-                    m_objIGXFeatureControl.GetFloatFeature("BalanceRatio").SetValue(dBalanceRatio);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            } 
-        }
-
-        /// <summary>
-        /// 更新自动白平衡从Once到off
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void m_timer_UpdateAutoWhite_Tick(object sender, EventArgs e)
+        private void button1_Click(object sender, EventArgs e)
         {
             try
             {
-                string strValue = ""; //自动白平衡值
-                Int32 i = 0;          //循环变量
+                Bitmap img1 = new Bitmap(m_objGxBitmap.Width, m_objGxBitmap.Heigh, PixelFormat.Format24bppRgb);
+                __UpdateBitmap(img1, m_objGxBitmap.ColorBuffer, m_objGxBitmap.Width, m_objGxBitmap.Heigh, true);
+                Bitmap img2 = new Bitmap(m_objGxBitmap2.Width, m_objGxBitmap2.Heigh, PixelFormat.Format24bppRgb);
+                __UpdateBitmap(img2, m_objGxBitmap2.ColorBuffer, m_objGxBitmap2.Width, m_objGxBitmap2.Heigh, true);
 
-                // 如果自动白平衡方式为Once,设置成功后实际的白平衡方式会自动变为off
-                // 为与设备状态保持一致程序以代码模拟该过程：设置为Once后随即将界面更新为off
-                if (m_strBalanceWhiteAutoValue == "Once")
-                {
-                    try
-                    {
-                        //获取自动白平衡枚举值
-                        if (null != m_objIGXFeatureControl)
-                        {
-                            strValue = m_objIGXFeatureControl.GetEnumFeature("BalanceWhiteAuto").GetValue();
-                        }
-                    }
-                    catch (Exception)
-                    {
-                    }
-                    m_strBalanceWhiteAutoValue = strValue;
 
-                    if (m_strBalanceWhiteAutoValue == "Off")
-                    {
-                        for (i = 0; i < m_cb_AutoWhite.Items.Count; i++)
-                        {
-                            if (m_cb_AutoWhite.Items[i].ToString() == "Off")
-                            {
-                                m_cb_AutoWhite.SelectedIndex = i;
-                                break;
-                            }
-                        }
-                        __UpdateUI();
-                    }
-                }
+                FastRetinaKeypointDetector freak = new FastRetinaKeypointDetector();
+                FastRetinaKeypoint[] keyPoints1;
+                FastRetinaKeypoint[] keyPoints2;
+                keyPoints1 = freak.ProcessImage(img1).ToArray();
+                keyPoints2 = freak.ProcessImage(img2).ToArray();
+
+                var matcher = new KNearestNeighborMatching<byte[]>(5, new Hamming());
+                IntPoint[][] matches = matcher.Match(keyPoints1, keyPoints2);
+
+                // Get the two sets of points
+                correlationPoints1 = matches[0];
+                correlationPoints2 = matches[1];
+
+                RansacHomographyEstimator ransac = new RansacHomographyEstimator(0.001, 0.99);
+                homography = ransac.Estimate(correlationPoints1, correlationPoints2);
+
+                // Plot RANSAC results against correlation results
+                IntPoint[] inliers1 = correlationPoints1.Submatrix(ransac.Inliers);
+                IntPoint[] inliers2 = correlationPoints2.Submatrix(ransac.Inliers);
+
+                Blend blend = new Blend(homography, img1);
+                m_stitpic_box.Image = blend.Apply(img2);
+
+
             }
-            catch (Exception)
+           catch(Exception ex)
             {
+                Console.WriteLine(ex.ToString());
             }
         }
+
+
+            private void __UpdateBitmap(Bitmap bitmap, byte[] byBuffer, int nWidth, int nHeight, bool bIsColor)
+            {
+                //给BitmapData加锁
+                BitmapData bmpData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadWrite, bitmap.PixelFormat);
+
+                //得到一个指向Bitmap的buffer指针
+                IntPtr ptrBmp = bmpData.Scan0;
+                int nImageStride = __GetStride(nWidth, bIsColor);
+                //图像宽能够被4整除直接copy
+                if (nImageStride == bmpData.Stride)
+                {
+                    Marshal.Copy(byBuffer, 0, ptrBmp, bmpData.Stride * bitmap.Height);
+                }
+                else    
+                {
+                    for (int i = 0; i < bitmap.Height; ++i)
+                    {
+                        Marshal.Copy(byBuffer, i * nImageStride, new IntPtr(ptrBmp.ToInt64() + i * bmpData.Stride), nWidth);
+                    }
+                }
+                //BitmapData解锁
+                bitmap.UnlockBits(bmpData);
+            }
+              private int __GetStride(int nWidth, bool bIsColor)
+              {
+                    return bIsColor ? nWidth * 3 : nWidth;
+              }
+
+              private void button2_Click(object sender, EventArgs e)
+              {
+                  hDevice = USB1020.USB1020_CreateDevice(0);
+                  if (hDevice == (IntPtr)(-1))
+                  {
+                      MessageBox.Show("创建设备失败！");
+                      return;
+                  }
+                  timer1.Enabled = true;
+                  for (i = 0; i < 4; i++)
+                  {
+                      LC[i].AxisNum = i;						// 轴号(USB1020_XAXIS:X轴; USB1020_YAXIS:Y轴;;USB1020_ZAXIS:Z轴; USB1020_UAXIS:U轴)
+                      LC[i].LV_DV = USB1020.USB1020_LV;				// 驱动方式 USB1020_DV:定长驱动 USB1020_LV: 连续驱动
+                      LC[i].PulseMode = USB1020.USB1020_CPDIR;		// 模式0：CW/CCW方式，1：CP/DIR方式 
+                      LC[i].Line_Curve = USB1020.USB1020_LINE;		// 直线曲线(0:直线加/减速; 1:S曲线加/减速)
+
+                      DL[i].Multiple = 15;
+                      DL[i].Acceleration = 5000;				// 加速度(125~1000,000)(直线加减速驱动中加速度一直不变）
+                      DL[i].Deceleration = 5000;				// 减速度(125~1000000)
+                      DL[i].AccIncRate = 1000;				// 加速度变化率(仅S曲线驱动时有效)
+                      DL[i].StartSpeed = 1000;					// 初始速度(1~8000)
+                      DL[i].DriveSpeed = 8000;				// 驱动速度	(1~8000)	
+                      LC[i].nPulseNum = 100000;				// 定量输出脉冲数(0~268435455)
+                      LC[i].Direction = USB1020.USB1020_PDIRECTION;	// 转动方向 USB1020_PDirection: 正转  USB1020_MDirection:反转		
+                      USB1020.USB1020_InitLVDV(						//	初始单轴化连续,定长脉冲驱动
+                                      hDevice,
+                                      ref DL[i],
+                                      ref LC[i]);
+                  }
+
+
+                  IA.Axis1 = USB1020.USB1020_XAXIS;		// X轴
+                  IA.Axis2 = USB1020.USB1020_ZAXIS;		// Y轴
+                  IA2.Axis1 = USB1020.USB1020_YAXIS;
+                  IA2.Axis2 = USB1020.USB1020_UAXIS;
+                  LD.ConstantSpeed = 1;				// 固定线速度 (不固定线速度 | 固定线速度)
+                  LD.Line_Curve = USB1020.USB1020_LINE;	// 直线运动
+                 
+                  LD.n1AxisPulseNum = 500000;		// 主轴终点脉冲数 (-8388608~8388607)
+                  LD.n2AxisPulseNum = 0;			// 第二轴轴终点脉冲数 (-8388608~8388607)
+                  USB1020.USB1020_InitLineInterpolation_2D(			// 初始化任意2轴直线插补运动 
+                                  hDevice,					// 设备句柄
+                                  ref DL[1],						// 公共参数结构体指针
+                                  ref IA,						// 插补轴结构体指针
+                                  ref LD);						// 直线插补结构体指针
+                  USB1020.USB1020_StartLineInterpolation_2D(hDevice);	// 启动任意2轴直线插补运动 
+
+                  USB1020.USB1020_NextWait(hDevice);					// 等待写入下一个节点的参数和命令
+
+                  USB1020.USB1020_PARA_CircleData CD;		// 正反方向圆弧插补参数
+                  CD.Direction = 0;		// 运动方向 (正方向 | 反方向)
+                  CD.Center1 = 0;		// 主轴圆心坐标(脉冲数-8388608~8388607)
+                  CD.Center2 = 60000;	// 第二轴轴圆心坐标(脉冲数-8388608~8388607)
+                  CD.Pulse1 = 0;		// 主轴终点坐标(脉冲数-8388608~8388607)	
+                  CD.Pulse2 = 100000;		// 第二轴轴终点坐标(脉冲数-8388608~8388607)
+                  CD.ConstantSpeed = USB1020.USB1020_CONSTAND;	// 固定线速度
+                  USB1020.USB1020_InitCWInterpolation_2D(				// 初始化任意2轴正反方向圆弧插补运动 
+                                           hDevice,			// 设备句柄
+                                           ref DL[1],				// 公共参数结构体指针
+                                           ref IA,				// 插补轴结构体指针
+                                           ref CD);				// 圆弧插补结构体指针
+                  USB1020.USB1020_StartCWInterpolation_2D(hDevice, CD.Direction);
+
+                  USB1020.USB1020_NextWait(hDevice);					// 等待写入下一个节点的参数和命令
+
+                  LD.n1AxisPulseNum = -500000;
+                  LD.n2AxisPulseNum = 0;
+
+                  USB1020.USB1020_InitLineInterpolation_2D(			// 初始化任意2轴直线插补运动 
+                                  hDevice,					// 设备句柄
+                                  ref DL[1],						// 公共参数结构体指针
+                                  ref IA,						// 插补轴结构体指针
+                                  ref LD);						// 直线插补结构体指针
+                  USB1020.USB1020_StartLineInterpolation_2D(hDevice);	// 启动任意2轴直线插补运动 
+
+                  USB1020.USB1020_NextWait(hDevice);					// 等待写入下一个节点的参数和命令
+
+
+                  CD.Center1 = 0;
+                  CD.Center2 = -60000;
+                  CD.Pulse1 = 0;
+                  CD.Pulse2 = -100000;
+                  USB1020.USB1020_InitCWInterpolation_2D(				// 初始化任意2轴正反方向圆弧插补运动 
+                                           hDevice,			// 设备句柄
+                                           ref DL[1],				// 公共参数结构体指针
+                                           ref IA,				// 插补轴结构体指针
+                                           ref CD);				// 圆弧插补结构体指针
+                  USB1020.USB1020_StartCWInterpolation_2D(hDevice, CD.Direction);
+                 
+              }
+
+              private void button3_Click(object sender, EventArgs e)
+              {
+                  timer1.Enabled = false;
+                  USB1020.USB1020_DecStop(			 // 减速停止
+                                           hDevice,			 // 设备句柄
+                                           USB1020.USB1020_ALLAXIS);		
+              }
 
     }
 }
