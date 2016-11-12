@@ -99,11 +99,13 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>D:\Program Files\Daheng Imavision\MER-Series\Samples\CSharp SDK\x64\DoNET\GxIAPINET.dll</HintPath>
     </Reference>
-    <Reference Include="Messages">
-      <HintPath>D:\1-My\Documents\Visual Studio 2013\Projects\BankRobotdemo\BankRobotdemo\Messages.dll</HintPath>
+    <Reference Include="Messages, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Messages.dll</HintPath>
     </Reference>
-    <Reference Include="Ros_CSharp">
-      <HintPath>D:\1-My\Documents\Visual Studio 2013\Projects\BankRobotdemo\BankRobotdemo\Ros_CSharp.dll</HintPath>
+    <Reference Include="Ros_CSharp, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\Ros_CSharp.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -114,12 +116,15 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
-    <Reference Include="XmlRpc_Wrapper">
-      <HintPath>D:\1-My\Documents\Visual Studio 2013\Projects\BankRobotdemo\BankRobotdemo\XmlRpc_Wrapper.dll</HintPath>
+    <Reference Include="XmlRpc_Wrapper, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>.\XmlRpc_Wrapper.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CDHCam.cs" />
     <Compile Include="CROS.cs" />
+    <Compile Include="CTMA500.cs" />
     <Compile Include="GxBitmap.cs" />
     <Compile Include="GxSingleCam.cs">
       <SubType>Form</SubType>

@@ -15,6 +15,7 @@ namespace GxIAPINET.Sample.Common
      
         Publisher<Messages.sensor_msgs.Image> imager;
         Publisher<Messages.sensor_msgs.Image> imagel;
+        Publisher<Messages.cham_msgs.ChamInfo> chaminfo;
         //Publisher<Messages.std_msgs.String> test;
     
         
@@ -42,8 +43,10 @@ namespace GxIAPINET.Sample.Common
             if (OnInitProcess != null)
             OnInitProcess(60);        
 
-            imagel = nh.advertise<Messages.sensor_msgs.Image>("/imagel", 1, true);
-            imager = nh.advertise<Messages.sensor_msgs.Image>("/imager", 1, true);
+            imagel = nh.advertise<Messages.sensor_msgs.Image>("/imagel", 10, true);
+            imager = nh.advertise<Messages.sensor_msgs.Image>("/imager", 10, true);
+            chaminfo = nh.advertise<Messages.cham_msgs.ChamInfo>("/chaminfo", 1, true);
+
             //test = nh.advertise<Messages.std_msgs.String>("/Top2Slam_name", 1, true);
             if (OnInitProcess != null)
                 OnInitProcess(80);
@@ -74,8 +77,16 @@ namespace GxIAPINET.Sample.Common
         public void PubMapImgR(Bitmap src)
         {
             Messages.sensor_msgs.Image dst=new Messages.sensor_msgs.Image();
-            //ConvertBitmapToMat(src, out dst);   
-            //imager.publish(dst);
+            ConvertBitmapToMat(src, out dst);
+            imager.publish(dst);
+        }
+
+        public void PubChamInfo()
+        {
+            Messages.cham_msgs.ChamInfo msg = new Messages.cham_msgs.ChamInfo();
+           
+            
+            chaminfo.publish(msg);
         }
         public void PubMapImgL(Bitmap src)
         {
@@ -115,26 +126,150 @@ namespace GxIAPINET.Sample.Common
             }  
             else
             {
-                Bitmap b = bmpImg;
+                Bitmap b = RGB2Gray(bmpImg);
                 System.Drawing.Imaging.BitmapData bmpData = b.LockBits(
                   new System.Drawing.Rectangle(0, 0, b.Width, b.Height),
                   System.Drawing.Imaging.ImageLockMode.ReadWrite, b.PixelFormat);
                 Byte[] data = new Byte[bmpData.Stride * bmpData.Height];
                 Marshal.Copy(bmpData.Scan0, data, 0, bmpData.Stride * bmpData.Height);
-                for (int i = 0; i < data.Length; i++)
-                {
-                    data[i] = (byte)(data[i]);
-                }
                 Img.height = Convert.ToUInt32(b.Height);
                 Img.width = Convert.ToUInt32(b.Width);
                 Img.step = Convert.ToUInt32(bmpData.Stride);
-                Img.encoding = "bgr8";
+                Img.encoding = "mono8";
                 Img.data = data;
                 b.UnlockBits(bmpData); 
             }
             //解锁Bitmap数据                        
             return (retVal);  
-        }  
+        }
+
+        public  Bitmap RGB2Gray(Bitmap srcBitmap)
+        {
+
+            int wide = srcBitmap.Width;
+
+            int height = srcBitmap.Height;
+
+            Rectangle rect = new Rectangle(0, 0, wide, height);
+
+            //将Bitmap锁定到系统内存中,获得BitmapData
+
+            BitmapData srcBmData = srcBitmap.LockBits(rect,
+
+            ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            //创建Bitmap
+
+            Bitmap dstBitmap = CreateGrayscaleImage(wide, height);//这个函数在后面有定义
+
+            BitmapData dstBmData = dstBitmap.LockBits(rect,
+
+            ImageLockMode.ReadWrite, PixelFormat.Format8bppIndexed);
+
+            //位图中第一个像素数据的地址。它也可以看成是位图中的第一个扫描行
+
+            System.IntPtr srcPtr = srcBmData.Scan0;
+
+            System.IntPtr dstPtr = dstBmData.Scan0;
+
+            //将Bitmap对象的信息存放到byte数组中
+
+            int src_bytes = srcBmData.Stride * height;
+
+            byte[] srcValues = new byte[src_bytes];
+
+            int dst_bytes = dstBmData.Stride * height;
+
+            byte[] dstValues = new byte[dst_bytes];
+
+            //复制GRB信息到byte数组
+
+            System.Runtime.InteropServices.Marshal.Copy(srcPtr, srcValues, 0, src_bytes);
+
+            System.Runtime.InteropServices.Marshal.Copy(dstPtr, dstValues, 0, dst_bytes);
+
+            //根据Y=0.299*R+0.114*G+0.587B,Y为亮度
+
+            for (int i = 0; i < height; i++)
+
+                for (int j = 0; j < wide; j++)
+                {
+
+                    //只处理每行中图像像素数据,舍弃未用空间
+
+                    //注意位图结构中RGB按BGR的顺序存储
+
+                    int k = 3 * j;
+
+                    byte temp = (byte)(srcValues[i * srcBmData.Stride + k + 2] * .299
+
+                    + srcValues[i * srcBmData.Stride + k + 1] * .587
+
+                    + srcValues[i * srcBmData.Stride + k] * .114);
+
+                    dstValues[i * dstBmData.Stride + j] = temp;
+
+                }
+
+            System.Runtime.InteropServices.Marshal.Copy(dstValues, 0, dstPtr, dst_bytes);
+
+            //解锁位图
+
+            srcBitmap.UnlockBits(srcBmData);
+
+            dstBitmap.UnlockBits(dstBmData);
+
+            return dstBitmap;
+
+        }
+        public  Bitmap CreateGrayscaleImage(int width, int height)
+        {
+
+            // create new image
+
+            Bitmap bmp = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
+
+            // set palette to grayscale
+
+            SetGrayscalePalette(bmp);
+
+            // return new image
+
+            return bmp;
+
+        }
+
+        ///<summary>
+
+        /// Set pallete of the image to grayscale
+
+        ///</summary>
+
+        public  void SetGrayscalePalette(Bitmap srcImg)
+        {
+
+            // check pixel format
+
+            if (srcImg.PixelFormat != PixelFormat.Format8bppIndexed)
+
+                throw new ArgumentException();
+
+            // get palette
+
+            ColorPalette cp = srcImg.Palette;
+
+            // init palette
+
+            for (int i = 0; i < 256; i++)
+            {
+
+                cp.Entries[i] = Color.FromArgb(i, i, i);
+
+            }
+
+            srcImg.Palette = cp;
+
+        }
       
     }
 
