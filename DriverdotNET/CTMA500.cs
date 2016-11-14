@@ -12,6 +12,7 @@ namespace DriverdotNET
 
         public Int32[] A = new Int32[4];
         public Int32[] LP = new Int32[4];
+        public double[] PD = new double[4];
         public Int32[] speed = new Int32[4];
         int i;
         IntPtr hDevice;
@@ -25,16 +26,20 @@ namespace DriverdotNET
 
         public CTMA500()
         {
+         
+        }
+        public bool Init()
+        {
             hDevice = USB1020.USB1020_CreateDevice(0);
             if (hDevice == (IntPtr)(-1))
             {
                 Console.WriteLine("创建设备失败！");
-                return;
+                return false;
             }
             for (i = 0; i < 4; i++)
             {
                 LC[i].AxisNum = i;						// 轴号(USB1020_XAXIS:X轴; USB1020_YAXIS:Y轴;;USB1020_ZAXIS:Z轴; USB1020_UAXIS:U轴)
-                LC[i].LV_DV = USB1020.USB1020_LV;				// 驱动方式 USB1020_DV:定长驱动 USB1020_LV: 连续驱动
+                LC[i].LV_DV = USB1020.USB1020_DV;				// 驱动方式 USB1020_DV:定长驱动 USB1020_LV: 连续驱动
                 LC[i].PulseMode = USB1020.USB1020_CPDIR;		// 模式0：CW/CCW方式，1：CP/DIR方式 
                 LC[i].Line_Curve = USB1020.USB1020_LINE;		// 直线曲线(0:直线加/减速; 1:S曲线加/减速)
 
@@ -51,6 +56,11 @@ namespace DriverdotNET
                                 ref DL[i],
                                 ref LC[i]);
             }
+            //USB1020.USB1020_Start4D(hDevice);
+            USB1020.USB1020_SetLP(hDevice, USB1020.USB1020_ALLAXIS, 0); // 设置逻辑位置计数器
+            USB1020.USB1020_SetEP(hDevice, USB1020.USB1020_ALLAXIS, 0);	// 设置实位计数器 		 	
+            USB1020.USB1020_SetAccofst(hDevice, USB1020.USB1020_ALLAXIS, 0);	// 设置加速计数器偏移
+            return true;
         }
 
         public void __update()
@@ -60,14 +70,42 @@ namespace DriverdotNET
                 speed[i] = (USB1020.USB1020_ReadCV(hDevice, i));		// 读当前速度
                 A[i] = (USB1020.USB1020_ReadCA(hDevice, i));		// 读当前加速度
                 LP[i] = USB1020.USB1020_ReadLP(hDevice, i);		// 读逻辑计数器
+                PD[i] = LP[i] * 3.125 / 1000.0;
             }
         }
-
         public void __stop()
         {
-            USB1020.USB1020_DecStop(			 // 减速停止
-                                          hDevice,			 // 设备句柄
-                                          USB1020.USB1020_ALLAXIS);		
+            USB1020.USB1020_DecStop(hDevice, USB1020.USB1020_ALLAXIS);			 // 减速停止
+        }
+
+        public void __zero()
+        {
+            USB1020.USB1020_DecStop(hDevice, USB1020.USB1020_ALLAXIS);			 // 减速停止
+            USB1020.USB1020_SetLP(hDevice, USB1020.USB1020_ALLAXIS, 0); // 设置逻辑位置计数器
+            USB1020.USB1020_SetEP(hDevice, USB1020.USB1020_ALLAXIS, 0);	// 设置实位计数器 		 	
+            USB1020.USB1020_SetAccofst(hDevice, USB1020.USB1020_ALLAXIS, 0);	// 设置加速计数器偏移
+                                          
+        }
+        public void Move(int axis,int stepnum,bool ispm)
+        {
+            if(axis>4||axis<0)
+            {
+                return;
+            }
+
+            LC[axis].nPulseNum = stepnum;				// 定量输出脉冲数(0~268435455)
+            if(ispm)
+            {
+                LC[axis].Direction = USB1020.USB1020_PDIRECTION;	
+            }
+            else
+            {
+                LC[axis].Direction = USB1020.USB1020_MDIRECTION;	
+            }
+            USB1020.USB1020_InitLVDV(hDevice, ref DL[axis], ref LC[axis]);
+            USB1020.USB1020_StartLVDV(hDevice, LC[axis].AxisNum);
+
+
         }
         public void __start()
         {

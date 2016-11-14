@@ -8,7 +8,9 @@ using Ros_CSharp;
 using XmlRpc_Wrapper;
 using Messages;
 using System.Runtime.InteropServices;
-namespace GxIAPINET.Sample.Common
+using System.Drawing.Drawing2D;
+
+namespace DriverdotNET
 {
     class CROS
     {
@@ -43,8 +45,8 @@ namespace GxIAPINET.Sample.Common
             if (OnInitProcess != null)
             OnInitProcess(60);        
 
-            imagel = nh.advertise<Messages.sensor_msgs.Image>("/imagel", 10, true);
-            imager = nh.advertise<Messages.sensor_msgs.Image>("/imager", 10, true);
+            imagel = nh.advertise<Messages.sensor_msgs.Image>("/imagel", 1, true);
+            imager = nh.advertise<Messages.sensor_msgs.Image>("/imager", 1, true);
             chaminfo = nh.advertise<Messages.cham_msgs.ChamInfo>("/chaminfo", 1, true);
 
             //test = nh.advertise<Messages.std_msgs.String>("/Top2Slam_name", 1, true);
@@ -81,11 +83,14 @@ namespace GxIAPINET.Sample.Common
             imager.publish(dst);
         }
 
-        public void PubChamInfo()
+        public void PubChamInfo(CTMA500 tma)
         {
             Messages.cham_msgs.ChamInfo msg = new Messages.cham_msgs.ChamInfo();
-           
-            
+            tma.__update();
+            msg.xl = tma.PD[1];
+            msg.xr = tma.PD[0];
+            msg.yl = tma.PD[3];
+            msg.yr = tma.PD[2];          
             chaminfo.publish(msg);
         }
         public void PubMapImgL(Bitmap src)
@@ -126,7 +131,8 @@ namespace GxIAPINET.Sample.Common
             }  
             else
             {
-                Bitmap b = RGB2Gray(bmpImg);
+                Bitmap b1= KiResizeImage(bmpImg, bmpImg.Width / 3, bmpImg.Height / 3, 0);
+                Bitmap b = RGB2Gray(b1);
                 System.Drawing.Imaging.BitmapData bmpData = b.LockBits(
                   new System.Drawing.Rectangle(0, 0, b.Width, b.Height),
                   System.Drawing.Imaging.ImageLockMode.ReadWrite, b.PixelFormat);
@@ -245,6 +251,33 @@ namespace GxIAPINET.Sample.Common
 
         ///</summary>
 
+        ///
+        /// Resize图片
+        ///
+        /// 原始Bitmap
+        /// 新的宽度
+        /// 新的高度
+        /// 保留着，暂时未用
+        /// 处理以后的图片
+        public static Bitmap KiResizeImage(Bitmap bmp, int newW, int newH, int Mode)
+        {
+            try
+            {
+                Bitmap b = new Bitmap(newW, newH);
+                Graphics g = Graphics.FromImage(b);
+
+                // 插值算法的质量
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.DrawImage(bmp, new Rectangle(0, 0, newW, newH), new Rectangle(0, 0, bmp.Width, bmp.Height), GraphicsUnit.Pixel);
+                g.Dispose();
+
+                return b;
+            }
+            catch
+            {
+                return null;
+            }
+        }
         public  void SetGrayscalePalette(Bitmap srcImg)
         {
 

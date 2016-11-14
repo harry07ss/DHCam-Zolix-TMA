@@ -55,9 +55,9 @@ namespace DriverdotNET
                 objIGXFeatureControl = m_objIGXDevice.GetRemoteFeatureControl();
                 objIGXFeatureControl.GetEnumFeature("AcquisitionMode").SetValue("Continuous");
                 objIGXFeatureControl.GetEnumFeature("ExposureAuto").SetValue("Off");
-                objIGXFeatureControl.GetFloatFeature("ExposureTime").SetValue(90000.0);
-                objIGXFeatureControl.GetIntFeature("GevSCPSPacketSize").SetValue(1500);
-                objIGXFeatureControl.GetIntFeature("GevSCPD").SetValue(1000);
+                objIGXFeatureControl.GetFloatFeature("ExposureTime").SetValue(70000.0);
+                objIGXFeatureControl.GetIntFeature("GevSCPSPacketSize").SetValue(3000);
+                objIGXFeatureControl.GetIntFeature("GevSCPD").SetValue(100);
            
                 isOpen = true;
                 return true;
